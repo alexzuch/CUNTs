@@ -1,90 +1,109 @@
 const token = '6dITi7vSlWRj6aUOTzgWMSixg4VMrVoJrDwnRTLP';
 const groupId = '102743257';
+const messageLimit = 100;
+let oldestMessageId = null;
+const senderImages = {
+    week1: {},
+    week2: {},
+    week3: {}
+};
 
-// Helper function to get week number based on a date
-function getWeekNumber(d) {
-    const start = new Date(d.getFullYear(), 0, 1); // Start of the year
-    const diff = d - start + (start.getTimezoneOffset() - d.getTimezoneOffset()) * 60000;
-    return Math.floor(diff / (7 * 24 * 60 * 60 * 1000)); // Divide by milliseconds in a week
-}
+// Date ranges for weeks
+const week1Start = new Date('2024-08-27').getTime() / 1000; // Unix timestamp in seconds
+const week1End = new Date('2024-08-28 23:59:59').getTime() / 1000;
+const week2Start = new Date('2024-09-03').getTime() / 1000;
+const week2End = new Date('2024-09-04 23:59:59').getTime() / 1000;
+const week3Start = new Date('2024-09-10').getTime() / 1000;
+const week3End = new Date('2024-09-11 23:59:59').getTime() / 1000;
 
-// Fetch messages from GroupMe API
-async function fetchMessages() {
-    const response = await fetch(`https://api.groupme.com/v3/groups/${groupId}/messages?token=${token}`);
+// Fetch messages from GroupMe API with pagination
+async function fetchMessages(beforeId = null) {
+    let url = `https://api.groupme.com/v3/groups/${groupId}/messages?token=${token}&limit=${messageLimit}`;
+    if (beforeId) {
+        url += `&before_id=${beforeId}`;
+    }
+
+    const response = await fetch(url);
     const data = await response.json();
     const messages = data.response.messages;
 
-    // Object to store images by sender and week
-    const senderImages = {};
-    const weeks = new Set(); // To track week numbers for table columns
+    if (messages.length > 0) {
+        oldestMessageId = messages[messages.length - 1].id;
 
-    // Loop through the messages and extract image attachments from Tuesdays and Wednesdays
-    messages.forEach(msg => {
-        const timestamp = new Date(msg.created_at * 1000); // Convert to JavaScript Date
-        const dayOfWeek = timestamp.getDay(); // Get the day of the week (0: Sunday, 1: Monday, ..., 6: Saturday)
-        const weekNumber = getWeekNumber(timestamp); // Get the week number
-        weeks.add(weekNumber); // Track which weeks are present
-
-        // Only process messages sent on Tuesday (2) or Wednesday (3)
-        if (dayOfWeek === 2 || dayOfWeek === 3) {
+        messages.forEach(msg => {
             const senderName = msg.name;
+            const messageTime = msg.created_at;
 
-            // Loop through the attachments to find images
+            // Check for image attachments and categorize them by date range
             msg.attachments.forEach(attachment => {
                 if (attachment.type === 'image') {
-                    if (!senderImages[senderName]) {
-                        senderImages[senderName] = {};
+                    let targetWeek = null;
+
+                    if (messageTime >= week1Start && messageTime <= week1End) {
+                        targetWeek = 'week1';
+                    } else if (messageTime >= week2Start && messageTime <= week2End) {
+                        targetWeek = 'week2';
+                    } else if (messageTime >= week3Start && messageTime <= week3End) {
+                        targetWeek = 'week3';
                     }
-                    if (!senderImages[senderName][weekNumber]) {
-                        senderImages[senderName][weekNumber] = [];
+
+                    if (targetWeek) {
+                        if (!senderImages[targetWeek][senderName]) {
+                            senderImages[targetWeek][senderName] = [];
+                        }
+                        senderImages[targetWeek][senderName].push(attachment.url);
                     }
-                    // Store the image URL under the sender's name and week number
-                    senderImages[senderName][weekNumber].push(attachment.url);
                 }
             });
-        }
-    });
+        });
 
-    // Sort weeks in ascending order for table column generation
-    const sortedWeeks = Array.from(weeks).sort((a, b) => a - b);
+        // Insert the data into the HTML table
+        renderTable();
 
-    // Insert the data into the HTML table
+        // Fetch the next batch of messages if available
+        await fetchMessages(oldestMessageId);
+    }
+}
+
+// Function to render the table
+function renderTable() {
     const tableBody = document.getElementById('tableBody');
-    const tableHead = document.getElementById('tableHead');
+    tableBody.innerHTML = ''; // Clear the existing table body before re-rendering
 
-    // Create the table header (Week 1, Week 2, ...)
-    const headerRow = document.createElement('tr');
-    headerRow.appendChild(document.createElement('th')); // Empty header for sender names
-    sortedWeeks.forEach(weekNumber => {
-        const th = document.createElement('th');
-        th.textContent = `Week ${weekNumber}`;
-        headerRow.appendChild(th);
-    });
-    tableHead.appendChild(headerRow);
+    // Get all unique senders
+    const allSenders = new Set([...Object.keys(senderImages.week1), ...Object.keys(senderImages.week2), ...Object.keys(senderImages.week3)]);
 
-    // Create table rows for each sender
-    Object.keys(senderImages).forEach(sender => {
+    allSenders.forEach(sender => {
         const row = document.createElement('tr');
         const nameCell = document.createElement('td');
         nameCell.textContent = sender;
         row.appendChild(nameCell);
 
-        // Fill the row with images for each week
-        sortedWeeks.forEach(weekNumber => {
-            const imageCell = document.createElement('td');
-            if (senderImages[sender][weekNumber]) {
-                senderImages[sender][weekNumber].forEach(imageUrl => {
-                    const img = document.createElement('img');
-                    img.src = imageUrl;
-                    img.style.maxWidth = '100px'; // Set image size
-                    imageCell.appendChild(img);
-                });
-            }
-            row.appendChild(imageCell);
-        });
+        // Create cells for week 1, week 2, and week 3
+        const week1Cell = createImageCell(senderImages.week1[sender]);
+        const week2Cell = createImageCell(senderImages.week2[sender]);
+        const week3Cell = createImageCell(senderImages.week3[sender]);
+
+        row.appendChild(week1Cell);
+        row.appendChild(week2Cell);
+        row.appendChild(week3Cell);
 
         tableBody.appendChild(row);
     });
+}
+
+// Helper function to create image cell
+function createImageCell(images) {
+    const cell = document.createElement('td');
+    if (images) {
+        images.forEach(imageUrl => {
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            img.style.maxWidth = '100px'; // Set image size
+            cell.appendChild(img);
+        });
+    }
+    return cell;
 }
 
 // Call the function to fetch and display messages
