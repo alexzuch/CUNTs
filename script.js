@@ -7,24 +7,39 @@ async function fetchMessages() {
     const data = await response.json();
     const messages = data.response.messages;
 
-    // Find messages with images
-    const imageMessages = messages.filter(msg => msg.attachments.length > 0 && msg.attachments[0].type === 'image');
+    // Object to store images by sender
+    const senderImages = {};
 
-    // Insert data into the HTML table
+    // Loop through the messages and extract image attachments
+    messages.forEach(msg => {
+        const senderName = msg.name;
+
+        // Check for image attachments
+        msg.attachments.forEach(attachment => {
+            if (attachment.type === 'image') {
+                if (!senderImages[senderName]) {
+                    senderImages[senderName] = [];
+                }
+                // Store the image URL under the sender's name
+                senderImages[senderName].push(attachment.url);
+            }
+        });
+    });
+
+    // Insert the data into the HTML table
     const tableBody = document.getElementById('tableBody');
-    imageMessages.forEach(msg => {
-        const name = msg.name;
-        const imageUrl = msg.attachments[0].url;
-
+    Object.keys(senderImages).forEach(sender => {
         const row = document.createElement('tr');
         const nameCell = document.createElement('td');
-        nameCell.textContent = name;
+        nameCell.textContent = sender;
 
         const imageCell = document.createElement('td');
-        const img = document.createElement('img');
-        img.src = imageUrl;
-        img.style.maxWidth = '100px';
-        imageCell.appendChild(img);
+        senderImages[sender].forEach(imageUrl => {
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            img.style.maxWidth = '100px'; // Set image size
+            imageCell.appendChild(img);
+        });
 
         row.appendChild(nameCell);
         row.appendChild(imageCell);
@@ -32,4 +47,5 @@ async function fetchMessages() {
     });
 }
 
+// Call the function to fetch and display messages
 fetchMessages();
